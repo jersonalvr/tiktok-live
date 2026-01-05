@@ -1,0 +1,14 @@
+{
+  "name": "tiktok-live-ws",
+  "version": "1.0.0",
+  "description": "WebSocket endpoint for TikTok live status using @adamjessop/tiktok-live-connector",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "colors": "^1.4.0",
+    "tiktok-live-connector": "^2.1.1-beta1",
+    "ws": "^8.14.2"
+  }
+}
