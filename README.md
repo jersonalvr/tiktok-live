@@ -1,5 +1,7 @@
 # TikTok LIVE Detector
 
+![TikTok LIVE Detector](images.jpg)
+
 Detector automático de transmisiones en vivo de TikTok basado en análisis de tráfico de red y conexiones de procesos.
 
 ## 🎯 Características

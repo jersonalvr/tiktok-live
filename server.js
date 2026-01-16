@@ -1,6 +1,6 @@
 const WebSocket = require('ws');
 const { TikTokLiveConnection } = require('tiktok-live-connector');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 const colors = require('colors');
 
 const PORT = 21213;
@@ -12,43 +12,51 @@ console.log(colors.cyan(`WebSocket server started on ws://localhost:${PORT}`));
 let isLive = false;
 let tiktok = null;
 let isConnected = false;
-let monitoringInterval;
+let isConnecting = false;  // Flag para evitar conexiones simultáneas
+let monitoringProcess = null;
+let lastErrorTime = 0;
+function generateRandomSessionId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
 
 function startMonitoring() {
-    monitoringInterval = setInterval(checkTikTokLiveStatus, 8000); // 8 segundos - da tiempo al script de PowerShell (5s) + procesamiento
-}
+    if (monitoringProcess) return; // Ya está corriendo
 
-function stopMonitoring() {
-    if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-        monitoringInterval = null;
-    }
-}
+    console.log(colors.blue('Iniciando monitoreo continuo de TikTok LIVE...'));
+    monitoringProcess = spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', 'detect_tiktok_live.ps1'], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-function checkTikTokLiveStatus() {
-    exec('powershell.exe -ExecutionPolicy Bypass -File detect_tiktok_live.ps1', (error, stdout, stderr) => {
-        if (error) {
-            console.error(colors.red('Error ejecutando PowerShell:', error));
-            return;
-        }
-        if (stderr) {
-            console.error(colors.red('Stderr:', stderr));
-            return;
-        }
-
-        const output = stdout.trim();
-        console.log(colors.yellow('Info:', output));
+    monitoringProcess.stdout.on('data', (data) => {
+        const output = data.toString().trim();
+        console.log(colors.yellow('PowerShell Output:', output));
 
         const isInLive = output.includes('ESTAS EN TIKTOK LIVE');
 
-        if (isInLive && !isConnected) {
+        if (isInLive && !isConnected && !isConnecting && (Date.now() - lastErrorTime > 10000)) {
             console.log(colors.green('Detectado: En LIVE. Conectando a TikTok...'));
+            isConnecting = true;
             connectToTikTok();
         } else if (!isInLive && isConnected) {
             console.log(colors.red('Detectado: No en LIVE. Desconectando...'));
             disconnectFromTikTok();
         }
     });
+
+    monitoringProcess.stderr.on('data', (data) => {
+        console.error(colors.red('Stderr:', data.toString()));
+    });
+
+    monitoringProcess.on('close', (code) => {
+        console.log(colors.gray('PowerShell process exited with code', code));
+        monitoringProcess = null;
+    });
+}
+
+function stopMonitoring() {
+    if (monitoringProcess) {
+        console.log(colors.blue('Deteniendo monitoreo de TikTok LIVE...'));
+        monitoringProcess.kill();
+        monitoringProcess = null;
+    }
 }
 
 function connectToTikTok() {
@@ -60,10 +68,13 @@ function connectToTikTok() {
     tiktok.connect().then(() => {
         console.log(colors.green('Connected to TikTok live'));
         isConnected = true;
+        isConnecting = false;  // Reset flag on success
     }).catch(err => {
         console.error(colors.red('Failed to connect:', err.message));
         isConnected = false;
+        isConnecting = false;  // Reset flag on failure
         isLive = false;
+        lastErrorTime = Date.now();  // Registrar el tiempo del error
         broadcast({ event: 'liveStatus', data: { isLive: false } });
     });
 
@@ -114,6 +125,7 @@ function disconnectFromTikTok() {
         tiktok.disconnect();
         tiktok = null;
         isConnected = false;
+        isConnecting = false;  // Reset flag on disconnect
         isLive = false;
         broadcast({ event: 'liveStatus', data: { isLive: false } });
         startMonitoring();
